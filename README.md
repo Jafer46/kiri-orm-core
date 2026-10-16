@@ -211,6 +211,26 @@ const page = await Post.paginate(
 
 `aggregate()` handles grouping and several figures at once, all in one statement in the database.
 
+```js
+await Order.aggregate(
+  [
+    ["status", "!=", "cancelled"],
+    ["revenue", ">", 1000],
+  ],
+  {
+    groupBy: ["customerId", "placedAt:month"],
+    aggregates: {
+      orders: "count",
+      revenue: { sum: "total" },
+      biggest: { max: "total" },
+    },
+    orderBy: "-revenue",
+    limit: 10,
+  },
+);
+// [{ customerId: 7, placedAt_month: Date(2024-02-01), orders: 12, revenue: 5400, biggest: 900 }, …]
+```
+
 ## Transactions
 
 Every method accepts `{ trx }`. If the callback throws, nothing in it is committed.
