@@ -350,6 +350,34 @@ different objects. Opt in with `withIdentityMap(fn)` when you want one.
 ## Also included
 
 - **Reports:** `createReport()` defines a read-only, aggregated model for dashboards and exports.
+
+```js
+import { createReport } from "@kiri-orm/core";
+
+export const SalesByCustomer = createReport("salesByCustomer", {
+  from: "order", // the model it reads
+  where: [["status", "!=", "cancelled"]], // always applied
+  fields: {
+    customerId: true, // a plain field of `order`
+    customerName: "customer.name", // a field through a to-one path
+    month: { from: "placedAt", bucket: "month" },
+    orders: { agg: "count" },
+    revenue: { agg: "sum", of: "total" },
+    itemsSold: { agg: "sum", of: "items.qty" }, // across a to-many relation
+    avgOrder: {
+      // plain JavaScript over the finished row
+      compute: (row) => row.revenue / row.orders,
+      depends: ["orders", "revenue"],
+    },
+  },
+  orderBy: "-revenue", // the default; override per call
+});
+
+await SalesByCustomer.find([["revenue", ">", 1000]], { limit: 10 });
+await SalesByCustomer.findOne([["customerName", "=", "Ada"]]);
+await SalesByCustomer.count();
+```
+
 - **DTO generation:** `generateModelDTOs("post")` returns create / update / read JSON Schemas
   built from the same field definitions.
 - **N+1 detection:** the ORM can flag a query that is repeated per row.
