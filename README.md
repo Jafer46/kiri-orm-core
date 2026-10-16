@@ -27,7 +27,6 @@ const post = await Post.create({ title: "Hello" });
   `_meta_models` / `_meta_fields` (an idea borrowed from Odoo). Migrations diff against that
   _recorded_ schema instead of guessing from live introspection, and the CLI and the DTO
   generators read from it too.
-- **Plain JavaScript.** No TypeScript type system involved, no generated client.
 - **The database enforces your relations.** Every `belongsTo` becomes a real `FOREIGN KEY` with
   its `ON DELETE` action, so deleting a row is one statement however many tables point at it.
 - **Relations load without N+1.** `with: [...]` costs one extra query per relation, however many
@@ -338,8 +337,6 @@ different objects. Opt in with `withIdentityMap(fn)` when you want one.
 
 ## Good to know
 
-- **Plain JavaScript.** The package ships no `.d.ts` files. `orm generate:dto` produces JSDoc
-  typedefs and JSON Schemas from your models if you want editor hints.
 - **No silent schema changes.** A field that disappears from your code is flagged in the
   metadata rather than dropped, and changing a field's `type` is never auto-migrated.
 - **SQLite and Postgres only.** Other databases are not supported.
