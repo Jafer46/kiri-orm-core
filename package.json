@@ -1,0 +1,52 @@
+{
+  "name": "@kiri-orm/core",
+  "version": "0.1.1",
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.js",
+      "types": "./dist/types/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "echo \"no build step - plain JS\"",
+    "test:unit": "vitest run test/unit",
+    "test:integration": "vitest run test/integration",
+    "test": "vitest run",
+    "clean": "echo nothing-to-clean"
+  },
+  "dependencies": {
+    "knex": "^3.1.0"
+  },
+  "peerDependencies": {
+    "better-sqlite3": "^11.0.0",
+    "pg": "^8.13.0"
+  },
+  "peerDependenciesMeta": {
+    "better-sqlite3": {
+      "optional": true
+    },
+    "pg": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "better-sqlite3": "^11.5.0",
+    "pg": "^8.13.1",
+    "typescript": "^7.0.2",
+    "vitest": "^2.1.4"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE",
+    "package.json",
+    "dist"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}
