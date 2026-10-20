@@ -16,6 +16,7 @@ import {
 import { translateDeleteError } from "../relations/foreign-keys.js";
 import { createRecords } from "./create-many.js";
 import { RelationError } from "../relations/errors.js";
+import { serializeJsonFields } from "./insert-many.js";
 
 /**
  * The CRUD surface for a single model. Every method speaks in field
@@ -428,7 +429,7 @@ export class Repository {
       this.fieldTypeRegistry,
       this.modelRegistry,
     );
-    const row = toRow(this.model, values);
+    const row = toRow(this.model, serializeJsonFields(this.model, values));
     return this.#queryBuilder(options.trx).where(where).update(row);
   }
 

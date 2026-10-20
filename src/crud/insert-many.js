@@ -146,7 +146,7 @@ export function alignToInput(model, valuesList, records) {
  * @param {import('../models/define-model.js').ModelDescriptor} model
  * @param {Record<string, unknown>} values
  */
-function serializeJsonFields(model, values) {
+export function serializeJsonFields(model, values) {
   let serialized = null;
   for (const [fieldName, field] of Object.entries(model.fields)) {
     if (field.type !== "json") continue;
