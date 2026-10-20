@@ -399,6 +399,13 @@ export class Repository {
    * @throws {ValidationError}
    */
   async update(filter, data, options = {}) {
+    if (isEmptyFilter(filter)) {
+      throw new ValidationError(this.model.name, {
+        _: [
+          "update() requires a non-empty filter - use a filter that matches everything explicitly if that's really intended",
+        ],
+      });
+    }
     assertPrimaryKeyUntouched(this.model, data);
     const { errors, values } = prepareWrite(
       this.model,
