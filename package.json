@@ -48,5 +48,16 @@
   "license": "MIT",
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "keywords": [
+    "orm",
+    "automatic",
+    "migrations",
+    "fast orm",
+    "data",
+    "framwork",
+    "postgres",
+    "sqlite",
+    "backend"
+  ]
 }
