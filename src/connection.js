@@ -24,7 +24,7 @@ const DIALECTS = /** @type {const} */ (["sqlite", "postgres"]);
 export function createConnection(config) {
   if (!config || !DIALECTS.includes(config.dialect)) {
     throw new Error(
-      `Unsupported or missing dialect. Expected one of: ${DIALECTS.join(", ")}`
+      `Unsupported or missing dialect. Expected one of: ${DIALECTS.join(", ")}`,
     );
   }
 
