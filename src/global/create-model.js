@@ -1,9 +1,18 @@
 import { Repository } from "../crud/repository.js";
-import { createEntity, diffEntity, mergeRecordIntoEntity, ENTITY_META } from "../uow/entity.js";
+import {
+  createEntity,
+  diffEntity,
+  mergeRecordIntoEntity,
+  ENTITY_META,
+} from "../uow/entity.js";
 import { withPrimaryKey } from "../crud/select.js";
 import { paginateWith } from "../crud/paginate.js";
 import { HOOK_NAMES } from "../uow/hooks.js";
-import { attachRelation, attachManyRelation, detachRelation } from "../relations/attach-detach.js";
+import {
+  attachRelation,
+  attachManyRelation,
+  detachRelation,
+} from "../relations/attach-detach.js";
 import { createRecords } from "../crud/create-many.js";
 import { assertPrimaryKeyUntouched } from "../crud/prepare-write.js";
 import { defaultFieldTypeRegistry } from "../fields/default-registry.js";
@@ -11,11 +20,14 @@ import { getConnection } from "./connect.js";
 import { state } from "./state.js";
 import { currentIdentityMap } from "./identity-scope.js";
 import { primaryKeyOf } from "../models/primary-key.js";
+import { SaveDeletedError } from "./errors.js";
 
 const assertKnownHooks = (name, hooks) => {
   for (const hookName of Object.keys(hooks)) {
     if (!HOOK_NAMES.includes(hookName)) {
-      throw new TypeError(`Model "${name}": unknown hook "${hookName}". Valid hooks: ${HOOK_NAMES.join(", ")}`);
+      throw new TypeError(
+        `Model "${name}": unknown hook "${hookName}". Valid hooks: ${HOOK_NAMES.join(", ")}`,
+      );
     }
   }
 };
@@ -24,7 +36,9 @@ function registerHooks(name, hooks) {
   if (!hooks) return;
   assertKnownHooks(name, hooks);
   for (const [hookName, handlerOrHandlers] of Object.entries(hooks)) {
-    const handlers = Array.isArray(handlerOrHandlers) ? handlerOrHandlers : [handlerOrHandlers];
+    const handlers = Array.isArray(handlerOrHandlers)
+      ? handlerOrHandlers
+      : [handlerOrHandlers];
     for (const fn of handlers) state.hooks.on(name, hookName, fn);
   }
 }
@@ -35,7 +49,9 @@ function addMixinHooks(mixinName, hooks) {
   assertKnownHooks(mixinName, hooks);
   const merged = { ...state.mixinHooks.get(mixinName) };
   for (const [hookName, handlerOrHandlers] of Object.entries(hooks)) {
-    const incoming = Array.isArray(handlerOrHandlers) ? handlerOrHandlers : [handlerOrHandlers];
+    const incoming = Array.isArray(handlerOrHandlers)
+      ? handlerOrHandlers
+      : [handlerOrHandlers];
     merged[hookName] = [...(merged[hookName] ?? []), ...incoming];
   }
   state.mixinHooks.set(mixinName, merged);
@@ -91,7 +107,10 @@ export function extendModel(name, extension = {}) {
   const { fields, relations, mixins, hooks, origin } = extension;
   const targetIsMixin = state.registry.isAbstract(name);
   if (hooks && !targetIsMixin) assertKnownHooks(name, hooks); // before anything is registered
-  state.registry.define({ extend: name, fields, relations, mixins }, { origin });
+  state.registry.define(
+    { extend: name, fields, relations, mixins },
+    { origin },
+  );
   if (targetIsMixin) addMixinHooks(name, hooks);
   else registerHooks(name, hooks);
   return getOrCreateModelHandle(name);
@@ -129,7 +148,10 @@ export function extendModel(name, extension = {}) {
  */
 export function defineMixin(name, definition) {
   const { fields, relations, mixins, hooks, origin } = definition;
-  state.registry.define({ name, abstract: true, fields, relations, mixins }, { origin });
+  state.registry.define(
+    { name, abstract: true, fields, relations, mixins },
+    { origin },
+  );
   addMixinHooks(name, hooks);
 }
 
@@ -196,7 +218,10 @@ export function createModel(name, schema) {
   const { fields, relations, hooks, table, mixins, origin } = schema;
   // Returns null (rather than throwing) if `mixins` names a model that doesn't exist yet: the
   // model then simply waits for it. Either way the Model below works once everything is defined.
-  const descriptorNow = state.registry.define({ name, table, fields, relations, mixins }, { origin });
+  const descriptorNow = state.registry.define(
+    { name, table, fields, relations, mixins },
+    { origin },
+  );
 
   // A mixin's hooks are picked up here, at creation time - see defineMixin()'s docstring for
   // why that's a deliberate, one-time pull rather than something a later mixin change reaches
@@ -232,7 +257,12 @@ function getOrCreateModelHandle(name) {
   const descriptor = () => state.registry.getModel(name);
 
   function repo() {
-    return new Repository(getConnection(), descriptor(), undefined, state.registry);
+    return new Repository(
+      getConnection(),
+      descriptor(),
+      undefined,
+      state.registry,
+    );
   }
 
   function identityKey(id) {
@@ -243,12 +273,20 @@ function getOrCreateModelHandle(name) {
     // Outside withIdentityMap() every call builds a fresh document.
     const identityMap = currentIdentityMap();
     const key = primaryKeyOf(descriptor());
-    const tracked = identityMap && key !== null && record[key] !== undefined && record[key] !== null;
+    const tracked =
+      identityMap &&
+      key !== null &&
+      record[key] !== undefined &&
+      record[key] !== null;
 
     if (tracked && identityMap.has(identityKey(record[key]))) {
       // Same rule as UnitOfWork: the in-memory instance wins for field values it already has,
       // missing fields are filled in, relations are refreshed (see mergeRecordIntoEntity()).
-      return mergeRecordIntoEntity(identityMap.get(identityKey(record[key])), record, descriptor());
+      return mergeRecordIntoEntity(
+        identityMap.get(identityKey(record[key])),
+        record,
+        descriptor(),
+      );
     }
 
     const document = createEntity(record, descriptor(), name, {
@@ -268,7 +306,8 @@ function getOrCreateModelHandle(name) {
       modelRegistry: state.registry,
       fieldTypeRegistry: defaultFieldTypeRegistry,
       hooks: state.hooks,
-      wrap: (modelName, record) => state.wrappers.get(modelName)?.(record) ?? record,
+      wrap: (modelName, record) =>
+        state.wrappers.get(modelName)?.(record) ?? record,
     };
   }
 
@@ -281,9 +320,27 @@ function getOrCreateModelHandle(name) {
 
     try {
       assertPrimaryKeyUntouched(descriptor(), dirty); // before any hook sees an id change
-      await state.hooks.run(name, "beforeUpdate", entity, dirty, originalSnapshot);
-      await state.hooks.run(name, "beforeSave", entity, dirty, originalSnapshot);
-      await repo().update({ [primaryKeyOf(descriptor())]: original[primaryKeyOf(descriptor())] }, dirty, options);
+      await state.hooks.run(
+        name,
+        "beforeUpdate",
+        entity,
+        dirty,
+        originalSnapshot,
+      );
+      await state.hooks.run(
+        name,
+        "beforeSave",
+        entity,
+        dirty,
+        originalSnapshot,
+      );
+      const result = await repo().update(
+        { [primaryKeyOf(descriptor())]: original[primaryKeyOf(descriptor())] },
+        dirty,
+        options,
+      );
+      if (!result)
+        throw new SaveDeletedError("save() did not affect any rows.");
     } catch (err) {
       for (const key of Object.keys(dirty)) entity[key] = original[key];
       throw err;
@@ -321,10 +378,15 @@ function getOrCreateModelHandle(name) {
      * @param {{ trx?: import('knex').Knex.Transaction }} [options] - pass `{ trx }` from runInTransaction() to include this write in an ongoing transaction
      */
     async create(data, options = {}) {
-      const [entity] = await createRecords(createRuntime(options), descriptor(), [data], {
-        trx: options.trx,
-        labels: [""],
-      });
+      const [entity] = await createRecords(
+        createRuntime(options),
+        descriptor(),
+        [data],
+        {
+          trx: options.trx,
+          labels: [""],
+        },
+      );
       return entity;
     },
 
@@ -340,7 +402,12 @@ function getOrCreateModelHandle(name) {
      * @param {{ trx?: import('knex').Knex.Transaction, chunkSize?: number }} [options]
      */
     async createMany(dataList, options = {}) {
-      return createRecords(createRuntime(options), descriptor(), dataList, options);
+      return createRecords(
+        createRuntime(options),
+        descriptor(),
+        dataList,
+        options,
+      );
     },
 
     /**
@@ -352,13 +419,19 @@ function getOrCreateModelHandle(name) {
      * @param {{ trx?: import('knex').Knex.Transaction, limit?: number, select?: string[], with?: string[]|object }} [options]
      */
     async find(filter = {}, options = {}) {
-      const records = await repo().find(filter, withPrimaryKey(descriptor(), options));
+      const records = await repo().find(
+        filter,
+        withPrimaryKey(descriptor(), options),
+      );
       return records.map(wrapDocument);
     },
 
     /** @param {{ trx?: import('knex').Knex.Transaction, with?: string[] }} [options] */
     async findOne(filter = {}, options = {}) {
-      const results = await repo().find(filter, withPrimaryKey(descriptor(), { ...options, limit: 1 }));
+      const results = await repo().find(
+        filter,
+        withPrimaryKey(descriptor(), { ...options, limit: 1 }),
+      );
       return results.length > 0 ? wrapDocument(results[0]) : null;
     },
 
@@ -393,9 +466,13 @@ function getOrCreateModelHandle(name) {
      */
     async paginate(filter = {}, options = {}) {
       return paginateWith(
-        { modelName: name, count: (f, o) => handle.count(f, o), find: (f, o) => handle.find(f, o) },
+        {
+          modelName: name,
+          count: (f, o) => handle.count(f, o),
+          find: (f, o) => handle.find(f, o),
+        },
         filter,
-        options
+        options,
       );
     },
 
@@ -435,7 +512,14 @@ function getOrCreateModelHandle(name) {
     /** @param {{ trx?: import('knex').Knex.Transaction }} [options] */
     async attach(source, relationName, targetIds, options = {}) {
       const db = options.trx ?? getConnection();
-      return attachRelation(db, descriptor(), name, source, relationName, targetIds);
+      return attachRelation(
+        db,
+        descriptor(),
+        name,
+        source,
+        relationName,
+        targetIds,
+      );
     },
 
     /**
@@ -453,7 +537,14 @@ function getOrCreateModelHandle(name) {
     /** @param {{ trx?: import('knex').Knex.Transaction }} [options] */
     async detach(source, relationName, targetIds, options = {}) {
       const db = options.trx ?? getConnection();
-      return detachRelation(db, descriptor(), name, source, relationName, targetIds);
+      return detachRelation(
+        db,
+        descriptor(),
+        name,
+        source,
+        relationName,
+        targetIds,
+      );
     },
   };
   state.models.set(name, handle);
