@@ -98,7 +98,7 @@ export async function sync(db, modelRegistry, options = {}) {
     const existingColumns = await db(model.tableName).columnInfo();
     const missingFieldEntries = Object.entries(model.fields).filter(
       ([fieldName]) => !(model.columns[fieldName] in existingColumns)
-    );
+    );  
     const addedColumns = new Set(missingFieldEntries.map(([fieldName]) => model.columns[fieldName]));
     const wanted = foreignKeysFor(model);
 
@@ -128,6 +128,16 @@ export async function sync(db, modelRegistry, options = {}) {
         );
       }
     }
+
+    const removedFields = getRemovedFields(model.columns, existingColumns)
+    if(removedFields.length > 0) {
+      const preposition = removedFields.length === 1 ?  'has': 'have'
+      const field = removedFields.length === 1 ?  'Field': 'Fields'
+      result.warnings.push(
+        `${field} ${removedFields} ${preposition} been removed from code on model ${model.tableName}, this does not have any effect on database`+
+        `but it will cause unexpected issue especially for required fields!` 
+      )
+    }
   }
 
   await ensurePivotTables(db, modelRegistry);
@@ -135,4 +145,14 @@ export async function sync(db, modelRegistry, options = {}) {
   result.meta = await syncMeta(db, modelRegistry);
 
   return result;
+}
+
+
+function getRemovedFields(currentModelColumns, existingModelColumns) {
+  const modelFields = new Set(Object.values(currentModelColumns));
+
+  const removedFields = Object.entries(existingModelColumns)
+    .filter(([fieldName]) => !modelFields.has(fieldName))
+    .map(([fieldName, fieldsDetails]) => (fieldName));
+  return removedFields;
 }
