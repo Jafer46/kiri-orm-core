@@ -21,7 +21,8 @@ function jsdocType(propertySchema) {
   if (propertySchema.enum) {
     return propertySchema.enum.map((v) => JSON.stringify(v)).join("|");
   }
-  if (propertySchema.type === "string" && propertySchema.format === "date") return "Date";
+  // A `date` field's value is a "YYYY-MM-DD" string since 0.1.3 (0.1.6 fixed this to match).
+  if (propertySchema.type === "string" && propertySchema.format === "date") return "string";
   if (propertySchema.type === "string" && propertySchema.format === "date-time") return "Date";
   return JSON_SCHEMA_TO_JSDOC_TYPE[propertySchema.type] ?? "*";
 }
