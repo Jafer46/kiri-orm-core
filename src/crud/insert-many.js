@@ -1,6 +1,6 @@
 import { fromRow, toRow } from "./row-mapping.js";
 import { primaryKeyOf } from "../models/primary-key.js";
-import { advanceSequence } from "./sequence.js";
+import { advanceSequence, isPostgres } from "./sequence.js";
 
 /**
  * Per-statement limits, by dialect family.
@@ -194,7 +194,7 @@ export async function insertRecords(
     );
     const returned = await db(model.tableName).insert(rows).returning("*");
     const records = returned.map((row) =>
-      fromRow(model, row, fieldTypeRegistry),
+      fromRow(model, row, fieldTypeRegistry, { jsonParsed: isPostgres(db) }),
     );
     results.push(...alignToInput(model, chunk, records));
   }

@@ -17,6 +17,7 @@ import { translateDeleteError } from "../relations/foreign-keys.js";
 import { createRecords } from "./create-many.js";
 import { RelationError } from "../relations/errors.js";
 import { serializeJsonFields } from "./insert-many.js";
+import { isPostgres } from "./sequence.js";
 
 /**
  * The CRUD surface for a single model. Every method speaks in field
@@ -186,6 +187,7 @@ export class Repository {
     const records = rows.map((row) =>
       fromRow(this.model, row, this.fieldTypeRegistry, {
         computed: plan.computed,
+        jsonParsed: isPostgres(this.db),
       }),
     );
 

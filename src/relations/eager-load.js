@@ -1,4 +1,5 @@
 import { fromRow } from "../crud/row-mapping.js";
+import { isPostgres } from "../crud/sequence.js";
 import { planSelect, stripHidden } from "../crud/select.js";
 import { RelationError } from "./errors.js";
 import { resolveLocalKey } from "./keys.js";
@@ -57,7 +58,7 @@ async function loadOneRelation(db, modelRegistry, model, records, relationName, 
   const table = relatedModel.tableName;
   const windowed = node.limit !== undefined || node.offset !== undefined;
 
-  const toRecords = (rows, plan) => rows.map((row) => fromRow(relatedModel, row, fieldTypeRegistry, { computed: plan.computed }));
+  const toRecords = (rows, plan) => rows.map((row) => fromRow(relatedModel, row, fieldTypeRegistry, { computed: plan.computed, jsonParsed: isPostgres(db) }));
 
   /** ORDER BY for the related rows: the requested order, then the primary key so ties (and a limit) are deterministic. */
   const orderFor = (prefix) => {
