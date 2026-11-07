@@ -78,6 +78,32 @@ function fromDateObject(dt) {
   return format(dt.getFullYear(), dt.getMonth() + 1, dt.getDate());
 }
 
+const DAY_MS = 86_400_000;
+
+/**
+ * Epoch milliseconds -> "YYYY-MM-DD". This is how 0.1.0-0.1.2 stored `date` fields on SQLite
+ * (they were Date objects then, and Knex's SQLite client binds a Date as its valueOf()), so
+ * these rows must keep reading after an upgrade - from 0.1.3 to 0.1.5 they threw
+ * "cannot cast 1706832000000 to date" instead.
+ *
+ * Which calendar day a stored instant meant depends on how the old Date was built:
+ *   - from a date string (`new Date("2024-03-01")`, the common case - JSON input) it is UTC
+ *     midnight, so the UTC day is the right one;
+ *   - from local components (`new Date(2024, 2, 1)`) it is local midnight on the server that
+ *     wrote it, so the local day is the right one.
+ * An instant at exactly UTC midnight is read as that UTC day, one at exactly local midnight as
+ * that local day; anything else (a date carrying a time) falls back to the UTC day.
+ */
+function fromEpochMs(ms) {
+  if (!Number.isFinite(ms)) return null;
+  const dt = new Date(ms);
+  if (Number.isNaN(dt.getTime())) return null;
+  const utcDay = format(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
+  if (((ms % DAY_MS) + DAY_MS) % DAY_MS === 0) return utcDay;
+  const isLocalMidnight = dt.getHours() === 0 && dt.getMinutes() === 0 && dt.getSeconds() === 0 && dt.getMilliseconds() === 0;
+  return isLocalMidnight ? fromDateObject(dt) : utcDay;
+}
+
 export const dateType = {
   name: "date",
 
@@ -102,6 +128,7 @@ export const dateType = {
     let result = null;
     if (typeof value === "string") result = parseString(field, value);
     else if (value instanceof Date) result = fromDateObject(value);
+    else if (typeof value === "number") result = fromEpochMs(value);
 
     if (result === null) {
       throw new CastError(`cannot cast ${JSON.stringify(value)} to date`, {

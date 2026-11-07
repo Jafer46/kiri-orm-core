@@ -5,8 +5,8 @@ import { isPostgres } from "../crud/sequence.js";
  * month, quarter or year, so rows can be grouped by period.
  *
  * Postgres and SQLite spell this completely differently (`date_trunc` vs `strftime`), and
- * store dates differently (a real `timestamptz`/`date` vs epoch milliseconds in an integer
- * column), so the SQL lives here, once, behind one function. Both return the bucket the
+ * store dates differently (a real `timestamptz`/`date` vs epoch milliseconds or "YYYY-MM-DD"
+ * text - see sqliteBucket()), so the SQL lives here, once, behind one function. Both return the bucket the
  * same way - an ISO-8601 UTC string, `2024-03-01T00:00:00Z` - which the caller turns
  * into a Date. Returning a string instead of letting each driver hand back its own
  * timestamp type is what keeps the result identical on both databases.
@@ -51,30 +51,37 @@ function postgresBucket(column, bucket, fieldType) {
 }
 
 function sqliteBucket(column, bucket) {
-  // Dates are stored as epoch milliseconds; strftime wants seconds. `/ 1000.0` keeps pre-1970 values correct.
-  const t = "??/1000.0, 'unixepoch'";
+  // SQLite has no date type, and a column can hold either of two storage forms:
+  //   - epoch milliseconds (an integer): every `datetime`, which Knex's SQLite client writes as
+  //     Date#valueOf(), and `date` values written by 0.1.0-0.1.2;
+  //   - text: `date` values written by 0.1.3+, as "YYYY-MM-DD".
+  // Before 0.1.6 only the first form was handled, so text dates all fell into 1970-01-01.
+  // Normalizing to SQLite's own "YYYY-MM-DD HH:MM:SS" text first handles both (and a mix of both
+  // in one column); `/ 1000.0` keeps pre-1970 values correct. Each use of `t` binds the column 3 times.
+  const t = "(CASE WHEN typeof(??) IN ('integer', 'real') THEN datetime(??/1000.0, 'unixepoch') ELSE ?? END)";
+  const uses = (n) => Array(3 * n).fill(column);
   const fmt = (pattern, ...extra) => `strftime('${pattern}', ${t}${extra.length ? `, ${extra.join(", ")}` : ""})`;
 
   switch (bucket) {
     case "hour":
-      return { sql: fmt("%Y-%m-%dT%H:00:00Z"), bindings: [column] };
+      return { sql: fmt("%Y-%m-%dT%H:00:00Z"), bindings: uses(1) };
     case "day":
-      return { sql: fmt("%Y-%m-%dT00:00:00Z"), bindings: [column] };
+      return { sql: fmt("%Y-%m-%dT00:00:00Z"), bindings: uses(1) };
     case "month":
-      return { sql: fmt("%Y-%m-01T00:00:00Z"), bindings: [column] };
+      return { sql: fmt("%Y-%m-01T00:00:00Z"), bindings: uses(1) };
     case "year":
-      return { sql: fmt("%Y-01-01T00:00:00Z"), bindings: [column] };
+      return { sql: fmt("%Y-01-01T00:00:00Z"), bindings: uses(1) };
     case "week":
       // Step back to Monday: %w is 0 (Sunday)..6, so (%w + 6) % 7 days since Monday.
       return {
         sql: fmt("%Y-%m-%dT00:00:00Z", `'-' || ((CAST(strftime('%w', ${t}) AS INTEGER) + 6) % 7) || ' days'`),
-        bindings: [column, column],
+        bindings: uses(2),
       };
     case "quarter":
       // First month of the quarter: 1, 4, 7 or 10.
       return {
         sql: `${fmt("%Y-")} || printf('%02d', ((CAST(strftime('%m', ${t}) AS INTEGER) - 1) / 3) * 3 + 1) || '-01T00:00:00Z'`,
-        bindings: [column, column],
+        bindings: uses(2),
       };
     default:
       throw new TypeError(`Unhandled bucket ${bucket}`); // unreachable: checked above
