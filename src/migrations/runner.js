@@ -13,6 +13,7 @@ import { diffSchema } from "./diff.js";
 import { describePlan } from "./describe.js";
 import { renderMigrationSource } from "./render.js";
 import { MigrationSafetyError, MigrationStateError } from "./errors.js";
+import { dialectOf } from "../schema/introspect-foreign-keys.js";
 
 /** Applied-migration history. `_meta_` is a reserved prefix, so no model's table can collide with it. */
 export const MIGRATIONS_TABLE = "_meta_migrations";
@@ -94,6 +95,44 @@ function helpers(options) {
 }
 
 /**
+ * Runs one migration's work in a transaction that is safe on SQLite.
+ *
+ * SQLite can't alter most of a table in place, so Knex rebuilds it: create a copy, copy the
+ * rows, DROP the original, rename the copy. With `PRAGMA foreign_keys` ON, that DROP runs an
+ * implicit `DELETE FROM` first - which fires ON DELETE CASCADE / SET NULL on every child
+ * table. Knex switches the pragma off around a rebuild, but SQLite ignores the pragma inside
+ * a transaction, and every migration here runs in one. Result before 0.1.6: dropping a column
+ * from a parent table deleted the rows of its cascading children.
+ *
+ * The fix is Knex's `enforceForeignCheck: false` (Knex >= 3.2): the pragma is switched off
+ * BEFORE `BEGIN`, `PRAGMA foreign_key_check` runs before `COMMIT` (any violation rolls the
+ * migration back), and the pragma is restored afterwards. The pragma is then re-read inside the
+ * transaction: if it is still on (an older Knex passed to connect(), or migrations started from
+ * inside an outer transaction, where the pragma can't change), the migration is refused rather
+ * than run with the risk of deleting rows.
+ *
+ * Postgres alters tables in place and needs none of this.
+ */
+async function inMigrationTransaction(db, work) {
+  if (dialectOf(db) !== "sqlite") return db.transaction(work);
+  return db.transaction(
+    async (trx) => {
+      const [row] = await trx.raw("PRAGMA foreign_keys");
+      if (Number(row?.foreign_keys) === 1) {
+        throw new MigrationStateError(
+          "Refusing to run a migration on SQLite with foreign key enforcement still on inside the migration's " +
+            "transaction: rebuilding a table (dropColumn, dropForeign, renames, ...) would then delete or null out " +
+            "rows of every table that references it through ON DELETE CASCADE / SET NULL. Either Knex is older than " +
+            "3.2 (upgrade it), or the migration was started inside another transaction (run it on the connection itself)."
+        );
+      }
+      return work(trx);
+    },
+    { enforceForeignCheck: false }
+  );
+}
+
+/**
  * Applies pending migrations, oldest first. Each one runs in its own
  * transaction together with its metadata update and its history row,
  * so a failure leaves the database, `_meta_*` and the history exactly
@@ -117,7 +156,7 @@ export async function migrateUp(db, options) {
   const applied = [];
   for (const entry of toApply) {
     const migration = await loadMigration(entry);
-    await db.transaction(async (trx) => {
+    await inMigrationTransaction(db, async (trx) => {
       await migration.up(trx, helpers(options));
       for (const [modelName, snapshots] of Object.entries(migration.meta ?? {})) {
         await restoreModelMeta(trx, modelName, snapshots.after);
@@ -168,7 +207,7 @@ export async function migrateDown(db, options) {
   const rolledBack = [];
   for (const row of toRollBack) {
     const migration = await loadMigration(files.get(row.name));
-    await db.transaction(async (trx) => {
+    await inMigrationTransaction(db, async (trx) => {
       await migration.down(trx, helpers(options));
       for (const [modelName, snapshots] of Object.entries(migration.meta ?? {})) {
         await restoreModelMeta(trx, modelName, snapshots.before);
