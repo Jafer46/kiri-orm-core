@@ -40,7 +40,7 @@ describe.each(eachDialect())("Repository CRUD - %s", ({ name, connect }) => {
         notes: "Some long-form notes",
         total: 199.99,
         isPaid: false,
-        dueDate: new Date("2026-02-01"),
+        dueDate: "2026-02-01",
         createdAt: new Date("2026-01-15T10:30:00.000Z"),
         metadata: { source: "api", tags: ["a", "b"] },
         status: "sent",
@@ -52,7 +52,7 @@ describe.each(eachDialect())("Repository CRUD - %s", ({ name, connect }) => {
       expect(created.notes).toBe("Some long-form notes");
       expect(created.total).toBe(199.99);
       expect(created.isPaid).toBe(false);
-      expect(created.dueDate).toBeInstanceOf(Date);
+      expect(created.dueDate).toBe("2026-02-01"); // a calendar day, as text, since 0.1.3
       expect(created.createdAt).toBeInstanceOf(Date);
       expect(created.createdAt.toISOString()).toBe("2026-01-15T10:30:00.000Z");
       expect(created.metadata).toEqual({ source: "api", tags: ["a", "b"] });

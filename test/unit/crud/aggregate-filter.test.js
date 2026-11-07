@@ -107,7 +107,7 @@ describe("compileHaving", () => {
 
   it("min/max values are cast with the column's own type", () => {
     const { bindings } = compile([["first", ">", "2024-02-10T00:00:00Z"]]);
-    expect(bindings[1]).toBeInstanceOf(Date);
+    expect(bindings[1]).toBe("2024-02-10"); // a date field's own form: the calendar day as text
   });
 
   it("handles in / not in, including the empty list", () => {

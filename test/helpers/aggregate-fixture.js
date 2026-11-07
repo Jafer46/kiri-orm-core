@@ -122,12 +122,12 @@ export async function seedAgg(db) {
     { id: 3, name: "Grace", country: "US", vip: true, credit: 25, createdAt: at("2024-01-20T10:00:00Z"), companyId: 2 },
   ]);
   await insertAgg(db, "order", [
-    { id: 1, customerId: 1, status: "paid", total: 100, qty: 2, shippingFee: 2, placedAt: at("2024-01-31T23:30:00Z"), shippedOn: at("2024-02-02T00:00:00Z"), note: "a" },
+    { id: 1, customerId: 1, status: "paid", total: 100, qty: 2, shippingFee: 2, placedAt: at("2024-01-31T23:30:00Z"), shippedOn: "2024-02-02", note: "a" },
     { id: 2, customerId: 1, status: "paid", total: 50, qty: 1, shippingFee: 2, placedAt: at("2024-02-01T00:10:00Z"), note: null },
-    { id: 3, customerId: 2, status: "paid", total: 200, qty: 4, shippingFee: 1, placedAt: at("2024-02-14T12:00:00Z"), shippedOn: at("2024-02-15T00:00:00Z"), note: "c" },
+    { id: 3, customerId: 2, status: "paid", total: 200, qty: 4, shippingFee: 1, placedAt: at("2024-02-14T12:00:00Z"), shippedOn: "2024-02-15", note: "c" },
     { id: 4, customerId: 3, status: "cancelled", total: 75, qty: 3, shippingFee: 3, placedAt: at("2024-05-05T05:05:05Z"), note: "d" },
     { id: 5, customerId: null, status: "paid", total: 10, qty: 1, shippingFee: 3, placedAt: null, note: "e" },
-    { id: 6, customerId: 3, status: "paid", total: 300, qty: 6, shippingFee: 1, placedAt: at("2024-05-20T10:00:00Z"), shippedOn: at("2024-05-21T00:00:00Z"), note: null },
+    { id: 6, customerId: 3, status: "paid", total: 300, qty: 6, shippingFee: 1, placedAt: at("2024-05-20T10:00:00Z"), shippedOn: "2024-05-21", note: null },
     { id: 7, customerId: 2, status: "refunded", total: 20, qty: 1, shippingFee: 2, placedAt: at("2024-02-20T08:00:00Z"), note: "g" },
   ]);
   await insertAgg(db, "item", [

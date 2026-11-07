@@ -11,6 +11,7 @@ const postModel = defineModel({
     status: { type: "enum", values: ["draft", "published"], default: "draft" },
     viewCount: { type: "integer" },
     publishedAt: { type: "datetime" },
+    dueOn: { type: "date" },
   },
 });
 
@@ -26,6 +27,7 @@ describe("jsonSchemaToJSDoc - golden file", () => {
         ' * @property {"draft"|"published"} [status]',
         " * @property {number} [viewCount]",
         " * @property {Date} [publishedAt]",
+        " * @property {string} [dueOn]", // a date field is "YYYY-MM-DD" text, not a Date
         " */",
       ].join("\n")
     );

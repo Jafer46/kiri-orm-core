@@ -37,16 +37,15 @@ describe.each(MATRIX)("aggregate - $name", ({ surface, run }) => {
         for (const value of Object.values(row)) expect(typeof value).toBe("number"); // not Postgres' bigint/numeric strings
       }));
 
-    it("min/max keep the field's own type: Dates for date fields, text for text", () =>
+    it("min/max keep the field's own type: Dates for datetime, \"YYYY-MM-DD\" for date, text for text", () =>
       setup(async ({ order }) => {
         const [row] = await order.aggregate({}, {
           aggregates: { first: { min: "placedAt" }, last: { max: "placedAt" }, firstShip: { min: "shippedOn" }, lastShip: { max: "shippedOn" }, lo: { min: "note" }, hi: { max: "note" } },
         });
         expect(row.first).toEqual(d("2024-01-31T23:30:00Z"));
         expect(row.last).toEqual(d("2024-05-20T10:00:00Z"));
-        expect(row.firstShip).toBeInstanceOf(Date);
-        expect(row.firstShip.toISOString().slice(0, 10)).toBe("2024-02-02");
-        expect(row.lastShip.toISOString().slice(0, 10)).toBe("2024-05-21");
+        expect(row.firstShip).toBe("2024-02-02");
+        expect(row.lastShip).toBe("2024-05-21");
         expect([row.lo, row.hi]).toEqual(["a", "g"]);
       }));
 
@@ -219,7 +218,7 @@ describe.each(MATRIX)("aggregate - $name", ({ surface, run }) => {
         const customers = async (filter) => (await order.aggregate(filter, byCustomer)).map((r) => r.customerId);
         expect(await customers([["first", "=", null]])).toEqual([null]); // customer-less order never shipped
         expect(await customers([["first", "!=", null]])).toEqual([1, 2, 3]);
-        expect(await customers([["first", ">", d("2024-02-10T00:00:00Z")]])).toEqual([2, 3]);
+        expect(await customers([["first", ">", "2024-02-10"]])).toEqual([2, 3]);
       }));
 
     it("a plain-object filter may name an aggregate, and mixes with row fields", () =>
