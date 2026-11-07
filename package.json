@@ -1,6 +1,6 @@
 {
   "name": "@kiri-orm/core",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "type": "module",
   "main": "./src/index.js",
   "types": "./dist/types/index.d.ts",
@@ -18,7 +18,7 @@
     "clean": "echo nothing-to-clean"
   },
   "dependencies": {
-    "knex": "^3.1.0"
+    "knex": "^3.2.0"
   },
   "peerDependencies": {
     "better-sqlite3": "^11.0.0",
