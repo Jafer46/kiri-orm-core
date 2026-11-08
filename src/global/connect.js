@@ -1,4 +1,5 @@
 import { createConnection, closeConnection } from "../connection.js";
+import { guardTransactions } from "../dialect/transaction-guard.js";
 import { state } from "./state.js";
 
 /**
@@ -18,8 +19,30 @@ import { state } from "./state.js";
  * @returns {import('knex').Knex}
  */
 export function connect(configOrConnection) {
-  state.connection = typeof configOrConnection === "function" ? configOrConnection : createConnection(configOrConnection);
+  // A pool connect() built itself from a config is closed when it is replaced (before 0.1.7 it was
+  // left open: calling connect() again leaked it, and a leaked Postgres pool keeps the process
+  // alive). A Knex instance the app passed in is the app's to close, so it is left alone.
+  const previous = state.ownsConnection ? state.connection : null;
+  const ownsNew = typeof configOrConnection !== "function";
+  const next = ownsNew ? createConnection(configOrConnection) : guardTransactions(configOrConnection);
+  state.connection = next;
+  state.ownsConnection = ownsNew;
+  if (previous && previous !== next) closeWhenIdle(previous);
   return state.connection;
+}
+
+/**
+ * Closes a replaced pool in the background (connect() is synchronous) once nothing is using it:
+ * destroying it right away would abort queries and transactions still running on it.
+ */
+function closeWhenIdle(db) {
+  const pool = db.client?.pool;
+  const busy = () => pool && (pool.numUsed() > 0 || pool.numPendingAcquires() > 0 || pool.numPendingCreates() > 0);
+  const attempt = () => {
+    if (busy()) setTimeout(attempt, 50).unref?.();
+    else closeConnection(db).catch(() => {});
+  };
+  attempt();
 }
 
 /**
@@ -45,5 +68,6 @@ export async function disconnect() {
   if (state.connection) {
     await closeConnection(state.connection);
     state.connection = null;
+    state.ownsConnection = false;
   }
 }
