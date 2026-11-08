@@ -1,4 +1,5 @@
 import { META_MODELS_TABLE, META_FIELDS_TABLE } from "./reserved-tables.js";
+import { createTableOnce } from "./create-table-once.js";
 
 /**
  * Creates the two internal metadata tables if they don't already
@@ -18,9 +19,8 @@ import { META_MODELS_TABLE, META_FIELDS_TABLE } from "./reserved-tables.js";
  * @param {import('knex').Knex} db
  */
 export async function ensureMetaTables(db) {
-  const hasModels = await db.schema.hasTable(META_MODELS_TABLE);
-  if (!hasModels) {
-    await db.schema.createTable(META_MODELS_TABLE, (table) => {
+  {
+    await createTableOnce(db, META_MODELS_TABLE, (table) => {
       table.increments("id");
       table.string("name", 255).notNullable().unique();
       table.string("table_name", 255).notNullable().unique();
@@ -30,9 +30,8 @@ export async function ensureMetaTables(db) {
     });
   }
 
-  const hasFields = await db.schema.hasTable(META_FIELDS_TABLE);
-  if (!hasFields) {
-    await db.schema.createTable(META_FIELDS_TABLE, (table) => {
+  {
+    await createTableOnce(db, META_FIELDS_TABLE, (table) => {
       table.increments("id");
       table
         .integer("model_id")

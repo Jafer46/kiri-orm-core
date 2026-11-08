@@ -14,6 +14,7 @@ import { describePlan } from "./describe.js";
 import { renderMigrationSource } from "./render.js";
 import { MigrationSafetyError, MigrationStateError } from "./errors.js";
 import { dialectOf } from "../schema/introspect-foreign-keys.js";
+import { createTableOnce } from "../meta/create-table-once.js";
 
 /** Applied-migration history. `_meta_` is a reserved prefix, so no model's table can collide with it. */
 export const MIGRATIONS_TABLE = "_meta_migrations";
@@ -22,8 +23,7 @@ const FILE_PATTERN = /^(\d{14})_([a-z0-9_]+)\.(?:js|mjs)$/;
 
 /** @param {import('knex').Knex} db */
 export async function ensureMigrationsTable(db) {
-  if (await db.schema.hasTable(MIGRATIONS_TABLE)) return;
-  await db.schema.createTable(MIGRATIONS_TABLE, (table) => {
+  await createTableOnce(db, MIGRATIONS_TABLE, (table) => {
     table.increments("id");
     table.string("name", 255).notNullable().unique();
     table.timestamp("applied_at").notNullable();
@@ -113,6 +113,29 @@ function helpers(options) {
  *
  * Postgres alters tables in place and needs none of this.
  */
+/**
+ * Serializes migrations across processes - two app instances deploying at once both see the same
+ * pending migrations. Taken at the start of each migration's transaction and held until it commits
+ * or rolls back; the caller then re-checks the history, so a migration the other process just
+ * applied is skipped instead of run twice (before 0.1.7 the second run failed half-way, or on
+ * SQLite applied DDL twice).
+ *
+ * Postgres: a transaction-scoped advisory lock - no extra connection, released with the
+ * transaction. SQLite: a write that changes nothing still takes the database's write lock, which
+ * SQLite holds until the transaction ends. A process waiting longer than the connection's busy
+ * timeout (5 s by default with better-sqlite3) fails with SQLITE_BUSY rather than waiting forever.
+ */
+async function lockMigrations(trx) {
+  if (dialectOf(trx) === "postgres") {
+    await trx.raw("select pg_advisory_xact_lock(?)", [MIGRATION_LOCK_KEY]);
+  } else {
+    await trx(MIGRATIONS_TABLE).where(trx.raw("0 = 1")).update({ name: trx.ref("name") });
+  }
+}
+
+/** Any fixed 64-bit number works; this one is "kiri" in ASCII, so it's recognizable in pg_locks. */
+const MIGRATION_LOCK_KEY = "1802072681";
+
 async function inMigrationTransaction(db, work) {
   if (dialectOf(db) !== "sqlite") return db.transaction(work);
   return db.transaction(
@@ -156,13 +179,18 @@ export async function migrateUp(db, options) {
   const applied = [];
   for (const entry of toApply) {
     const migration = await loadMigration(entry);
-    await inMigrationTransaction(db, async (trx) => {
+    const ran = await inMigrationTransaction(db, async (trx) => {
+      await lockMigrations(trx);
+      // Another process may have applied it while this one waited for the lock.
+      if (await trx(MIGRATIONS_TABLE).where({ name: entry.name }).first()) return false;
       await migration.up(trx, helpers(options));
       for (const [modelName, snapshots] of Object.entries(migration.meta ?? {})) {
         await restoreModelMeta(trx, modelName, snapshots.after);
       }
       await trx(MIGRATIONS_TABLE).insert({ name: entry.name, applied_at: new Date() });
+      return true;
     });
+    if (!ran) continue;
     applied.push(entry.name);
     options.onApply?.(entry.name, migration.summary ?? []);
   }
@@ -178,7 +206,7 @@ export async function migrateUp(db, options) {
       }
     }
     for (const table of wanted) if (!(await db.schema.hasTable(table))) pivotTablesCreated.push(table);
-    await ensurePivotTables(db, options.modelRegistry);
+    await ensurePivotTables(db, options.modelRegistry, options.columnBuilderRegistry ?? defaultColumnBuilderRegistry);
   }
   return { applied, pivotTablesCreated };
 }
@@ -207,13 +235,18 @@ export async function migrateDown(db, options) {
   const rolledBack = [];
   for (const row of toRollBack) {
     const migration = await loadMigration(files.get(row.name));
-    await inMigrationTransaction(db, async (trx) => {
+    const ran = await inMigrationTransaction(db, async (trx) => {
+      await lockMigrations(trx);
+      // Another process may have rolled it back while this one waited for the lock.
+      if (!(await trx(MIGRATIONS_TABLE).where({ name: row.name }).first())) return false;
       await migration.down(trx, helpers(options));
       for (const [modelName, snapshots] of Object.entries(migration.meta ?? {})) {
         await restoreModelMeta(trx, modelName, snapshots.before);
       }
       await trx(MIGRATIONS_TABLE).where({ name: row.name }).delete();
+      return true;
     });
+    if (!ran) continue;
     rolledBack.push(row.name);
     options.onRollback?.(row.name, migration.summary ?? []);
   }
