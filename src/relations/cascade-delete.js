@@ -2,6 +2,8 @@ import { RelationError } from "./errors.js";
 import { ON_DELETE_ACTIONS } from "./define-relation.js";
 import { resolveOnDelete } from "./foreign-keys.js";
 import { primaryKeyOf } from "../models/primary-key.js";
+import { IN_LIST_CHUNK } from "../crud/chunk.js";
+import { chunkArray } from "../crud/insert-many.js";
 
 // Since foreign keys became real database constraints (see foreign-keys.js), the database applies
 // onDelete itself and a delete is a single statement. Everything in this file is therefore only
@@ -74,11 +76,15 @@ async function cascadeDelete(db, modelRegistry, model, ids) {
   for (const { childModel, relation, action } of incoming) {
     if (action !== "restrict") continue;
     const column = childModel.columns[relation.foreignKey];
-    const blocking = await db(childModel.tableName).whereIn(column, ids).first(column);
+    let blocking;
+    for (const chunk of chunkArray(ids, IN_LIST_CHUNK)) {
+      blocking = await db(childModel.tableName).whereIn(column, chunk).first(column);
+      if (blocking) break;
+    }
     if (blocking) {
       throw new RelationError(
         `Can't delete from "${model.name}": "${childModel.name}.${relation.foreignKey}" (belongsTo, onDelete: "restrict") ` +
-          `still has at least one row pointing at ${JSON.stringify(ids.length === 1 ? ids[0] : ids)}.`
+          `still has at least one row pointing at ${describeIds(ids)}.`
       );
     }
   }
@@ -86,7 +92,9 @@ async function cascadeDelete(db, modelRegistry, model, ids) {
   for (const { childModel, relation, action } of incoming) {
     const column = childModel.columns[relation.foreignKey];
     if (action === "setNull") {
-      await db(childModel.tableName).whereIn(column, ids).update({ [column]: null });
+      for (const chunk of chunkArray(ids, IN_LIST_CHUNK)) {
+        await db(childModel.tableName).whereIn(column, chunk).update({ [column]: null });
+      }
     } else if (action === "cascade") {
       const childKey = primaryKeyOf(childModel);
       if (childKey === null) {
@@ -96,13 +104,29 @@ async function cascadeDelete(db, modelRegistry, model, ids) {
         );
       }
       const childIdColumn = childModel.columns[childKey];
-      const rows = await db(childModel.tableName).whereIn(column, ids).select(childIdColumn);
-      const childIds = rows.map((row) => row[childIdColumn]);
+      const childIds = [];
+      for (const chunk of chunkArray(ids, IN_LIST_CHUNK)) {
+        const rows = await db(childModel.tableName).whereIn(column, chunk).select(childIdColumn);
+        for (const row of rows) childIds.push(row[childIdColumn]);
+      }
       await cascadeDelete(db, modelRegistry, childModel, childIds);
     }
   }
 
-  return db(model.tableName).whereIn(model.columns[primaryKeyOf(model)], ids).delete();
+  // Every IN list in this file goes in IN_LIST_CHUNK-sized slices: a cascade through tens of
+  // thousands of children went past the databases' bound-parameter limits before 0.1.7.
+  let deleted = 0;
+  for (const chunk of chunkArray(ids, IN_LIST_CHUNK)) {
+    deleted += await db(model.tableName).whereIn(model.columns[primaryKeyOf(model)], chunk).delete();
+  }
+  return deleted;
+}
+
+/** The ids for an error message: all of a few, or a count and a sample of many. */
+function describeIds(ids) {
+  if (ids.length === 1) return JSON.stringify(ids[0]);
+  if (ids.length <= 10) return JSON.stringify(ids);
+  return `${ids.length} ids (${JSON.stringify(ids.slice(0, 10)).slice(0, -1)}, ...])`;
 }
 
 /**

@@ -1,6 +1,7 @@
 import { RelationError } from "./errors.js";
 import { resolveLocalKey } from "./keys.js";
 import { chunkArray, rowsPerStatement } from "../crud/insert-many.js";
+import { IN_LIST_CHUNK } from "../crud/chunk.js";
 
 function resolveId(source, localKey) {
   return typeof source === "object" && source !== null ? source[localKey] : source;
@@ -11,10 +12,10 @@ function localKeyOf(relation, model) {
   return resolveLocalKey(relation, model);
 }
 
-function requireSourceId(sourceId, relationName, modelName, localKey) {
+function requireSourceId(sourceId, relationName, modelName, localKey, verb = "attach") {
   if (sourceId === undefined || sourceId === null) {
     throw new RelationError(
-      `Cannot attach via "${relationName}" on model "${modelName}": the source has no value for its "${localKey}" field`
+      `Cannot ${verb} via "${relationName}" on model "${modelName}": the source has no value for its "${localKey}" field`
     );
   }
   return sourceId;
@@ -102,21 +103,42 @@ export async function attachPairs(db, relation, pairs, options = {}) {
   }
   if (unique.length === 0) return 0;
 
-  let toInsert = unique;
-  if (options.checkExisting !== false) {
-    const existing = await loadExistingPairs(db, relation, unique);
-    toInsert = unique.filter(([source, target]) => !existing.has(pairKey(source, target)));
-  }
-  if (toInsert.length === 0) return 0;
+  // Check, then insert. Two concurrent attach() calls for the same pair can both pass the check;
+  // the pivot's unique constraint then rejects the slower insert. Before 0.1.7 that surfaced as a
+  // unique-violation error. Now the whole insert runs in its own transaction (a savepoint when
+  // `db` is already a transaction, so a failure there doesn't abort the caller's transaction on
+  // Postgres); on a unique violation it is rolled back and retried against fresh state - the
+  // pairs the other caller inserted are now found and skipped.
+  for (let attempt = 1; ; attempt++) {
+    let toInsert = unique;
+    if (options.checkExisting !== false) {
+      const existing = await loadExistingPairs(db, relation, unique);
+      toInsert = unique.filter(([source, target]) => !existing.has(pairKey(source, target)));
+    }
+    if (toInsert.length === 0) return 0;
 
-  const rows = toInsert.map(([source, target]) => ({
-    [relation.foreignKey]: source,
-    [relation.otherKey]: target,
-  }));
-  for (const chunk of chunkArray(rows, rowsPerStatement(db, 2, options.chunkSize))) {
-    await db(relation.through).insert(chunk);
+    const rows = toInsert.map(([source, target]) => ({
+      [relation.foreignKey]: source,
+      [relation.otherKey]: target,
+    }));
+    try {
+      await db.transaction(async (trx) => {
+        for (const chunk of chunkArray(rows, rowsPerStatement(db, 2, options.chunkSize))) {
+          await trx(relation.through).insert(chunk);
+        }
+      });
+      return rows.length;
+    } catch (error) {
+      if (options.checkExisting === false || attempt >= MAX_ATTACH_ATTEMPTS || !isUniqueViolation(error)) throw error;
+    }
   }
-  return rows.length;
+}
+
+const MAX_ATTACH_ATTEMPTS = 3;
+
+/** A duplicate-key error: Postgres SQLSTATE 23505, SQLite's UNIQUE / PRIMARY KEY constraint codes. */
+function isUniqueViolation(error) {
+  return error?.code === "23505" || error?.code === "SQLITE_CONSTRAINT_UNIQUE" || error?.code === "SQLITE_CONSTRAINT_PRIMARYKEY";
 }
 
 /**
@@ -197,9 +219,18 @@ export async function attachManyRelation(db, model, modelName, relationName, lin
  */
 export async function detachRelation(db, model, modelName, source, relationName, targetIds) {
   const relation = requireBelongsToMany(model, modelName, relationName);
-  const sourceId = resolveId(source, localKeyOf(relation, model));
+  const localKey = localKeyOf(relation, model);
+  const sourceId = requireSourceId(resolveId(source, localKey), relationName, modelName, localKey, "detach");
   const ids = Array.isArray(targetIds) ? targetIds : [targetIds];
   if (ids.length === 0) return 0;
 
-  return db(relation.through).where(relation.foreignKey, sourceId).whereIn(relation.otherKey, ids).delete();
+  // In chunks: one IN list per statement stays under SQLite's and Postgres' bound-parameter limits
+  // (a single list of ~33k / ~65k ids failed before 0.1.7). One transaction keeps it all-or-nothing.
+  return db.transaction(async (trx) => {
+    let removed = 0;
+    for (const chunk of chunkArray(ids, IN_LIST_CHUNK)) {
+      removed += await trx(relation.through).where(relation.foreignKey, sourceId).whereIn(relation.otherKey, chunk).delete();
+    }
+    return removed;
+  });
 }

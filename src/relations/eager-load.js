@@ -1,5 +1,7 @@
 import { fromRow } from "../crud/row-mapping.js";
 import { isPostgres } from "../crud/sequence.js";
+import { IN_LIST_CHUNK } from "../crud/chunk.js";
+import { chunkArray } from "../crud/insert-many.js";
 import { planSelect, stripHidden } from "../crud/select.js";
 import { RelationError } from "./errors.js";
 import { resolveLocalKey } from "./keys.js";
@@ -77,6 +79,10 @@ async function loadOneRelation(db, modelRegistry, model, records, relationName, 
    */
   const read = async (matchColumn, values, ownKey) => {
     const plan = planSelect(relatedModel, node.select, [ownKey, ...nestedKeys]);
+    const rows = await inChunks(values, (chunk) => readChunk(matchColumn, chunk, plan));
+    return { hidden: plan.hidden, related: toRecords(rows, plan) };
+  };
+  const readChunk = async (matchColumn, values, plan) => {
     let query = db(table).whereIn(matchColumn, values);
     if (node.whereFn) query = query.where(node.whereFn);
 
@@ -93,7 +99,7 @@ async function loadOneRelation(db, modelRegistry, model, records, relationName, 
       for (const { column, direction } of orderFor("")) query = query.orderBy(column, direction);
       rows = await query;
     }
-    return { hidden: plan.hidden, related: toRecords(rows, plan) };
+    return rows;
   };
   const nothing = { relatedModel, related: [], hidden: [] };
 
@@ -159,21 +165,21 @@ async function loadOneRelation(db, modelRegistry, model, records, relationName, 
       const related = (node.whereFn ? db(table).where(node.whereFn) : db(table)).as("t");
       const order = orderFor("t.");
 
-      let query = db({ pv: relation.through })
-        .join(related, `t.${relatedModel.columns[relatedKey]}`, `pv.${relation.otherKey}`)
-        .whereIn(`pv.${relation.foreignKey}`, localValues)
-        .select(db.raw("?? AS ??", [`pv.${relation.foreignKey}`, PARENT]))
-        .select(plan.columns ? plan.columns.map((c) => `t.${c}`) : "t.*");
+      const rows = await inChunks(localValues, async (chunk) => {
+        let query = db({ pv: relation.through })
+          .join(related, `t.${relatedModel.columns[relatedKey]}`, `pv.${relation.otherKey}`)
+          .whereIn(`pv.${relation.foreignKey}`, chunk)
+          .select(db.raw("?? AS ??", [`pv.${relation.foreignKey}`, PARENT]))
+          .select(plan.columns ? plan.columns.map((c) => `t.${c}`) : "t.*");
 
-      let rows;
-      if (windowed) {
-        const orderBy = order.map((o) => `?? ${o.direction === "desc" ? "DESC" : "ASC"}`).join(", ");
-        query = query.select(db.raw(`row_number() OVER (PARTITION BY ?? ORDER BY ${orderBy}) AS ??`, [`pv.${relation.foreignKey}`, ...order.map((o) => o.column), RANK]));
-        rows = await rankWindow(db, query, plan.columns ? [...plan.columns.map((c) => c), PARENT] : null, node, PARENT);
-      } else {
+        if (windowed) {
+          const orderBy = order.map((o) => `?? ${o.direction === "desc" ? "DESC" : "ASC"}`).join(", ");
+          query = query.select(db.raw(`row_number() OVER (PARTITION BY ?? ORDER BY ${orderBy}) AS ??`, [`pv.${relation.foreignKey}`, ...order.map((o) => o.column), RANK]));
+          return rankWindow(db, query, plan.columns ? [...plan.columns.map((c) => c), PARENT] : null, node, PARENT);
+        }
         for (const { column, direction } of order) query = query.orderBy(column, direction);
-        rows = await query;
-      }
+        return query;
+      });
 
       // The same related row may sit under several parents: one object, shared, as in the unordered path.
       const byKey = new Map();
@@ -190,9 +196,9 @@ async function loadOneRelation(db, modelRegistry, model, records, relationName, 
     }
 
     // Only the two link columns are needed from the pivot table.
-    const pivotRows = await db(relation.through)
-      .select(relation.foreignKey, relation.otherKey)
-      .whereIn(relation.foreignKey, localValues);
+    const pivotRows = await inChunks(localValues, (chunk) =>
+      db(relation.through).select(relation.foreignKey, relation.otherKey).whereIn(relation.foreignKey, chunk)
+    );
     const relatedIds = uniqueDefined(pivotRows.map((row) => row[relation.otherKey]));
 
     let related = [];
@@ -289,4 +295,17 @@ async function loadTree(db, modelRegistry, model, records, tree, fieldTypeRegist
 export async function eagerLoad(db, modelRegistry, model, records, withSpec, fieldTypeRegistry) {
   const tree = withSpec instanceof Map ? withSpec : normalizeWith(model, modelRegistry, withSpec, fieldTypeRegistry);
   return loadTree(db, modelRegistry, model, records, tree, fieldTypeRegistry);
+}
+
+/**
+ * Runs `query(chunk)` for each IN_LIST_CHUNK-sized slice of `values` and concatenates the rows.
+ * Each slice is a set of whole parents (or whole related keys), so per-parent grouping, ordering
+ * and limits are unchanged; only rows of different parents may come from different statements.
+ * One slice - the usual case - is exactly the single statement this always ran.
+ */
+async function inChunks(values, query) {
+  if (values.length <= IN_LIST_CHUNK) return query(values);
+  const rows = [];
+  for (const chunk of chunkArray(values, IN_LIST_CHUNK)) rows.push(...(await query(chunk)));
+  return rows;
 }
