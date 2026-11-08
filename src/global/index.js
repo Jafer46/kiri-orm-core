@@ -2,6 +2,7 @@ export { connect, getConnection, disconnect } from "./connect.js";
 export { createModel, extendModel, defineMixin } from "./create-model.js";
 export { loadModels } from "./load-models.js";
 export { syncModels } from "./sync-models.js";
+export { normalizeDates } from "./normalize-dates.js";
 export { syncSequences } from "./sequences.js";
 export { createReport } from "./create-report.js";
 export { detectNPlusOne, assertNoNPlusOne, watchNPlusOne } from "./n-plus-one.js";
