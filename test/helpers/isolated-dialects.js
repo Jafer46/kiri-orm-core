@@ -26,7 +26,8 @@ export function eachIsolatedDialect() {
 async function runOnSqlite(fn) {
   const db = createConnection({ dialect: "sqlite", filename: ":memory:" });
   try {
-    return await fn(db);
+    // An in-memory database can't be opened twice; tests needing that use a file of their own.
+    return await fn(db, { openAnother: null });
   } finally {
     await closeConnection(db);
   }
@@ -42,10 +43,18 @@ async function runOnPostgres(fn) {
   const url = new URL(baseUrl);
   url.searchParams.set("options", `-c search_path=${schema}`);
   const db = createConnection({ dialect: "postgres", connectionString: url.toString() });
+  // A second, independent pool on the same schema - for tests that need two "processes".
+  const others = [];
+  const openAnother = () => {
+    const another = createConnection({ dialect: "postgres", connectionString: url.toString() });
+    others.push(another);
+    return another;
+  };
 
   try {
-    return await fn(db);
+    return await fn(db, { openAnother });
   } finally {
+    for (const another of others) await closeConnection(another);
     await closeConnection(db);
     await admin.raw(`drop schema "${schema}" cascade`);
     await closeConnection(admin);
