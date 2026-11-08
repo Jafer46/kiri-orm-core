@@ -1,4 +1,5 @@
 import knexFactory from "knex";
+import { guardTransactions } from "./dialect/transaction-guard.js";
 
 /**
  * Supported dialects for Phase 0. More can be added later without
@@ -11,6 +12,13 @@ const DIALECTS = /** @type {const} */ (["sqlite", "postgres"]);
  * @property {"sqlite"|"postgres"} dialect
  * @property {string} [filename]            - sqlite only, e.g. ":memory:" or a file path
  * @property {string} [connectionString]    - postgres only
+ * @property {boolean|object} [ssl]         - postgres only: passed to the `pg` driver (`true`, or
+ *   `{ rejectUnauthorized, ca, ... }`). Since 0.1.7.
+ * @property {{ min?: number, max?: number, idleTimeoutMillis?: number, afterCreate?: Function }} [pool]
+ *   - Knex pool settings (Postgres default: min 2, max 10; SQLite: 1 connection). An `afterCreate`
+ *   of your own runs after the ORM's (SQLite turns foreign keys on there). Since 0.1.7.
+ * @property {number} [acquireConnectionTimeout] - ms to wait for a free pooled connection before
+ *   failing (Knex default 60000). Since 0.1.7.
  */
 
 /**
@@ -28,21 +36,27 @@ export function createConnection(config) {
     );
   }
 
+  const shared = config.acquireConnectionTimeout === undefined ? {} : { acquireConnectionTimeout: config.acquireConnectionTimeout };
+
   if (config.dialect === "sqlite") {
-    return knexFactory({
+    const { afterCreate: userAfterCreate, ...pool } = config.pool ?? {};
+    return guardTransactions(knexFactory({
       client: "better-sqlite3",
       connection: {
         filename: config.filename ?? ":memory:",
       },
       useNullAsDefault: true,
-      // SQLite only enforces foreign keys on connections that ask for it (off by default).
+      ...shared,
       pool: {
+        ...pool,
+        // SQLite only enforces foreign keys on connections that ask for it (off by default).
         afterCreate(connection, done) {
           connection.pragma("foreign_keys = ON");
-          done(null, connection);
+          if (userAfterCreate) userAfterCreate(connection, done);
+          else done(null, connection);
         },
       },
-    });
+    }));
   }
 
   if (config.dialect === "postgres") {
@@ -51,7 +65,9 @@ export function createConnection(config) {
     }
     return knexFactory({
       client: "pg",
-      connection: config.connectionString,
+      connection: config.ssl === undefined ? config.connectionString : { connectionString: config.connectionString, ssl: config.ssl },
+      ...shared,
+      ...(config.pool ? { pool: config.pool } : {}),
     });
   }
 
