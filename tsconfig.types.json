@@ -1,0 +1,16 @@
+{
+  "//": "Generates dist/types/*.d.ts from the JSDoc in src/. Run by `npm run build:types`, and automatically before `npm pack` / `npm publish` (prepack), so the published types always match the published code.",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist/types",
+    "rootDir": "src",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2022",
+    "skipLibCheck": true
+  },
+  "files": ["src/index.js"]
+}

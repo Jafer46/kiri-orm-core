@@ -173,6 +173,21 @@ export function serializeJsonFields(model, values) {
  * @param {{ chunkSize?: number }} [options]
  * @returns {Promise<Record<string, unknown>[]>}
  */
+const hasNoValues = (row) => Object.values(row).every((value) => value === undefined);
+
+/**
+ * Rows with no column values at all (a model whose only field is its auto id, or rows where every
+ * field is optional and unset). Knex builds a multi-row insert from the columns the rows name, and
+ * there are none, so `createMany([{}, {}])` failed with "The query is empty" before 0.1.7. A
+ * single `insert({})` compiles to `INSERT ... DEFAULT VALUES` on both databases, so these go one
+ * statement per row.
+ */
+async function insertDefaultRows(db, table, count) {
+  const returned = [];
+  for (let i = 0; i < count; i++) returned.push(...(await db(table).insert({}).returning("*")));
+  return returned;
+}
+
 export async function insertRecords(
   db,
   model,
@@ -192,7 +207,9 @@ export async function insertRecords(
     const rows = chunk.map((values) =>
       toRow(model, serializeJsonFields(model, values)),
     );
-    const returned = await db(model.tableName).insert(rows).returning("*");
+    const returned = rows.every(hasNoValues)
+      ? await insertDefaultRows(db, model.tableName, rows.length)
+      : await db(model.tableName).insert(rows).returning("*");
     const records = returned.map((row) =>
       fromRow(model, row, fieldTypeRegistry, { jsonParsed: isPostgres(db) }),
     );

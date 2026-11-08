@@ -140,7 +140,7 @@ export async function sync(db, modelRegistry, options = {}) {
     }
   }
 
-  await ensurePivotTables(db, modelRegistry);
+  await ensurePivotTables(db, modelRegistry, columnBuilderRegistry);
   await ensureMetaTables(db);
   result.meta = await syncMeta(db, modelRegistry);
 

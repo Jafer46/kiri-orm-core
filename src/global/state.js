@@ -23,6 +23,8 @@ import { HookRegistry } from "../uow/hooks.js";
  */
 export const state = {
   connection: null,
+  /** Whether connect() built `connection` from a config (so it may close it when replaced). */
+  ownsConnection: false,
   registry: new ModelRegistry(),
   hooks: new HookRegistry(),
   // modelName -> (record) => document. Filled in by createModel() so a
@@ -51,6 +53,7 @@ export const state = {
  */
 export function __resetGlobalStateForTests() {
   state.connection = null;
+  state.ownsConnection = false;
   state.registry = new ModelRegistry();
   state.hooks = new HookRegistry();
   state.wrappers = new Map();

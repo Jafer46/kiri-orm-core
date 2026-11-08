@@ -1,6 +1,7 @@
 {
   "name": "@kiri-orm/core",
-  "version": "0.1.6",
+  "version": "0.1.7",
+  "description": "A JavaScript ORM for SQLite and Postgres, built on Knex: models defined at runtime, migrations, relations, aggregates and hooks - no code generation.",
   "type": "module",
   "main": "./src/index.js",
   "types": "./dist/types/index.d.ts",
@@ -11,7 +12,9 @@
     }
   },
   "scripts": {
-    "build": "echo \"no build step - plain JS\"",
+    "build": "npm run build:types",
+    "build:types": "node -e \"require('fs').rmSync('dist/types',{recursive:true,force:true})\" && tsc -p tsconfig.types.json",
+    "prepack": "npm run build:types",
     "test:unit": "vitest run test/unit",
     "test:integration": "vitest run test/integration",
     "test": "vitest run",

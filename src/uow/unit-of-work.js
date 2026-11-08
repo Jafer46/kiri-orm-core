@@ -61,16 +61,23 @@ export class UnitOfWork {
    */
   #trackOrReuse(modelName, model, record) {
     const pk = primaryKeyOf(model);
-    const key = this.#identityKey(modelName, pk === null ? undefined : record[pk]);
+    const hooks = {
+      save: (e, options) => this.saveEntity(e, options),
+      delete: (e, options) => this.deleteEntity(e, options),
+    };
+    // Same rule as the global API's withIdentityMap(): only a row with a primary key value has an
+    // identity. Before 0.1.7 a model without a primary key keyed every row as "<model>:undefined",
+    // so find() returned the first row's object once per row.
+    if (pk === null || record[pk] === undefined || record[pk] === null) {
+      return createEntity(record, model, modelName, hooks);
+    }
+    const key = this.#identityKey(modelName, record[pk]);
     if (this.identityMap.has(key)) {
       // Field values already on the cached instance win (it may hold unsaved edits); fields it
       // doesn't have yet are filled in, and relations are refreshed. See mergeRecordIntoEntity().
       return mergeRecordIntoEntity(this.identityMap.get(key), record, model);
     }
-    const entity = createEntity(record, model, modelName, {
-      save: (e, options) => this.saveEntity(e, options),
-      delete: (e, options) => this.deleteEntity(e, options),
-    });
+    const entity = createEntity(record, model, modelName, hooks);
     this.identityMap.set(key, entity);
     return entity;
   }

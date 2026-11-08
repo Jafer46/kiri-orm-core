@@ -1,5 +1,8 @@
 import { addForeignKey } from "../schema/foreign-keys.js";
 import { pivotForeignKeysOf } from "./foreign-keys.js";
+import { resolveLocalKey } from "./keys.js";
+import { primaryKeyOf } from "../models/primary-key.js";
+import { defaultColumnBuilderRegistry } from "../schema/default-column-builders.js";
 
 /**
  * Creates the pivot table for every `belongsToMany` relation across
@@ -24,7 +27,7 @@ import { pivotForeignKeysOf } from "./foreign-keys.js";
  * @param {import('knex').Knex} db
  * @param {import('../models/registry.js').ModelRegistry} modelRegistry
  */
-export async function ensurePivotTables(db, modelRegistry) {
+export async function ensurePivotTables(db, modelRegistry, columnBuilderRegistry = defaultColumnBuilderRegistry) {
   for (const modelName of modelRegistry.listModels()) {
     const model = modelRegistry.getModel(modelName);
     for (const relation of Object.values(model.relations ?? {})) {
@@ -34,12 +37,30 @@ export async function ensurePivotTables(db, modelRegistry) {
       if (exists) continue;
 
       await db.schema.createTable(relation.through, (table) => {
-        table.integer(relation.foreignKey).notNullable();
-        table.integer(relation.otherKey).notNullable();
+        const related = modelRegistry.listModels().includes(relation.model) ? modelRegistry.getModel(relation.model) : null;
+        pivotColumn(table, relation.foreignKey, model.fields?.[resolveLocalKey(relation, model)], columnBuilderRegistry);
+        pivotColumn(table, relation.otherKey, related && related.fields?.[primaryKeyOf(related)], columnBuilderRegistry);
         table.unique([relation.foreignKey, relation.otherKey]);
         // both sides cascade: deleting a row removes its associations, in the database
         for (const fk of pivotForeignKeysOf(modelRegistry, model, relation)) addForeignKey(table, fk);
       });
     }
   }
+}
+
+/**
+ * A pivot column of the same type as the key it points to. Before 0.1.7 both pivot columns
+ * were always `integer`: with uuid (or char) keys, Postgres refused to create the foreign key
+ * ("incompatible types"), so syncModels() failed; SQLite silently stored the uuids in
+ * integer-typed columns. Existing pivot tables are never altered - only new ones get this.
+ *
+ * An auto-increment key is an integer column; any other key is built by the same column builder
+ * as the key itself (uuid -> uuid, char -> varchar of its maxLength, ...), without the key's own
+ * primary/unique/default. A key that can't be resolved falls back to `integer`, as before.
+ */
+function pivotColumn(table, columnName, keyField, columnBuilderRegistry) {
+  if (!keyField || keyField.autoId === "increment" || !columnBuilderRegistry.has?.(keyField.type)) {
+    return table.integer(columnName).notNullable();
+  }
+  return columnBuilderRegistry.get(keyField.type)(table, columnName, keyField).notNullable();
 }
