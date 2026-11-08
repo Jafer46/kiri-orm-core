@@ -44,20 +44,19 @@ export declare function chunkArray<T>(items: T[], size: number): T[][];
  */
 export declare function alignToInput(model: import('../models/define-model.js').ModelDescriptor, valuesList: Record<string, unknown>[], records: Record<string, unknown>[]): Record<string, unknown>[];
 /**
- * Inserts many already-validated rows with as few statements as the
- * dialect allows - one INSERT ... RETURNING per chunk - and returns
- * the stored records, cast back into field values, in input order.
+ * JSON columns need their value serialized explicitly on a bulk insert.
  *
- * This does NOT open a transaction: with more than one chunk the
- * caller is responsible for atomicity (see createRecords()).
+ * Knex serializes an object bound to a single-row INSERT, but not one
+ * inside the `SELECT ... UNION ALL SELECT ...` it compiles multi-row
+ * SQLite inserts to - better-sqlite3 then rejects the raw object
+ * ("can only bind numbers, strings, bigints, buffers, and null"). On
+ * Postgres, `pg` sends a JS *array* as a Postgres array literal rather
+ * than JSON, which a json column refuses. Passing the JSON text
+ * ourselves is correct on both, and reads back through fromRow()
+ * unchanged (it parses SQLite's text and Postgres hands back objects).
  *
- * @param {import('knex').Knex} db - connection or transaction
  * @param {import('../models/define-model.js').ModelDescriptor} model
- * @param {Record<string, unknown>[]} valuesList - output of prepareWrite(...).values, one per row
- * @param {import('../fields/registry.js').FieldTypeRegistry} fieldTypeRegistry
- * @param {{ chunkSize?: number }} [options]
- * @returns {Promise<Record<string, unknown>[]>}
+ * @param {Record<string, unknown>} values
  */
-export declare function insertRecords(db: import('knex').Knex, model: import('../models/define-model.js').ModelDescriptor, valuesList: Record<string, unknown>[], fieldTypeRegistry: import('../fields/registry.js').FieldTypeRegistry, options?: {
-    chunkSize?: number;
-}): Promise<Record<string, unknown>[]>;
+export declare function serializeJsonFields(model: import('../models/define-model.js').ModelDescriptor, values: Record<string, unknown>): Record<string, unknown>;
+export declare function insertRecords(db: any, model: any, valuesList: any, fieldTypeRegistry: any, options?: {}): Promise<Record<string, unknown>[]>;

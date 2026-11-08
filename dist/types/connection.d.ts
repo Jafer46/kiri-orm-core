@@ -13,12 +13,39 @@ export type ConnectionConfig = {
      * - postgres only
      */
     connectionString?: string;
+    /**
+     * - postgres only: passed to the `pg` driver (`true`, or
+     * `{ rejectUnauthorized, ca, ... }`). Since 0.1.7.
+     */
+    ssl?: boolean | object;
+    /**
+     * - Knex pool settings (Postgres default: min 2, max 10; SQLite: 1 connection). An `afterCreate`
+     * of your own runs after the ORM's (SQLite turns foreign keys on there). Since 0.1.7.
+     */
+    pool?: {
+        min?: number;
+        max?: number;
+        idleTimeoutMillis?: number;
+        afterCreate?: Function;
+    };
+    /**
+     * - ms to wait for a free pooled connection before
+     * failing (Knex default 60000). Since 0.1.7.
+     */
+    acquireConnectionTimeout?: number;
 };
 /**
  * @typedef {Object} ConnectionConfig
  * @property {"sqlite"|"postgres"} dialect
  * @property {string} [filename]            - sqlite only, e.g. ":memory:" or a file path
  * @property {string} [connectionString]    - postgres only
+ * @property {boolean|object} [ssl]         - postgres only: passed to the `pg` driver (`true`, or
+ *   `{ rejectUnauthorized, ca, ... }`). Since 0.1.7.
+ * @property {{ min?: number, max?: number, idleTimeoutMillis?: number, afterCreate?: Function }} [pool]
+ *   - Knex pool settings (Postgres default: min 2, max 10; SQLite: 1 connection). An `afterCreate`
+ *   of your own runs after the ORM's (SQLite turns foreign keys on there). Since 0.1.7.
+ * @property {number} [acquireConnectionTimeout] - ms to wait for a free pooled connection before
+ *   failing (Knex default 60000). Since 0.1.7.
  */
 /**
  * Creates a Knex instance for the given dialect. This is the single

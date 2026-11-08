@@ -21,4 +21,4 @@
  * @param {import('knex').Knex} db
  * @param {import('../models/registry.js').ModelRegistry} modelRegistry
  */
-export declare function ensurePivotTables(db: import('knex').Knex, modelRegistry: import('../models/registry.js').ModelRegistry): Promise<void>;
+export declare function ensurePivotTables(db: import('knex').Knex, modelRegistry: import('../models/registry.js').ModelRegistry, columnBuilderRegistry?: import("../index.js").ColumnBuilderRegistry): Promise<void>;

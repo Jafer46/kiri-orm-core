@@ -22,6 +22,8 @@ import { HookRegistry } from "../uow/hooks.js";
  */
 export declare const state: {
     connection: null;
+    /** Whether connect() built `connection` from a config (so it may close it when replaced). */
+    ownsConnection: boolean;
     registry: ModelRegistry;
     hooks: HookRegistry;
     wrappers: Map<any, any>;

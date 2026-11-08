@@ -3,8 +3,8 @@
  * month, quarter or year, so rows can be grouped by period.
  *
  * Postgres and SQLite spell this completely differently (`date_trunc` vs `strftime`), and
- * store dates differently (a real `timestamptz`/`date` vs epoch milliseconds in an integer
- * column), so the SQL lives here, once, behind one function. Both return the bucket the
+ * store dates differently (a real `timestamptz`/`date` vs epoch milliseconds or "YYYY-MM-DD"
+ * text - see sqliteBucket()), so the SQL lives here, once, behind one function. Both return the bucket the
  * same way - an ISO-8601 UTC string, `2024-03-01T00:00:00Z` - which the caller turns
  * into a Date. Returning a string instead of letting each driver hand back its own
  * timestamp type is what keeps the result identical on both databases.
